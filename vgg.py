@@ -1,25 +1,24 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
+import torchvision.datasets as datasets
 import numpy as np
 
-from time import time
-print('here')
-
-start = time()
 
 # Hyperparameters
+NUM_EPOCHS = 74
 IMG_SIZE = 224
 IMG_CHANNELS = 3
 BATCH_SIZE = 256
 INIT_LR = 1e-2
 EPOCHS = 74
 MOMENTUM = 0.9
-L2_PENALTY = 5e-4
+WEIGHT_DECAY = 5e-4
 MEAN = 0
 VAR = 1e-2
 NUM_CLASSES = 1000
+TRAIN_IMG_DIR = 'files/imagenet'
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -96,4 +95,35 @@ vgg_13 = [64, 64, 'mp', 128, 128, 'mp', 256, 256, 'mp', 512, 512, 'mp', 512, 512
 vgg_16 = [64, 64, 'mp', 128, 128, 'mp', 256, 256, 256, 'mp', 512, 512, 512, 'mp', 512, 512, 512, 'mp']
 vgg_19 = [64, 64, 'mp', 128, 128, 'mp', 256, 256, 256, 256, 'mp', 512, 512, 512, 512, 'mp', 512, 512, 512, 512, 'mp']
 
-model_vgg_16 = VGG(vgg_16, NUM_CLASSES, IMG_CHANNELS)
+dataset = datasets.ImageFolder(TRAIN_IMG_DIR)
+train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+
+model_vgg_16 = VGG(vgg_16, NUM_CLASSES, IMG_CHANNELS).to(device)
+optimizer = optim.SGD(momentum=MOMENTUM, weight_decay=WEIGHT_DECAY, params=model_vgg_16.parameters(), lr=INIT_LR)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+criterion = nn.CrossEntropyLoss()
+
+hist = {
+    'loss': [0] * NUM_EPOCHS
+}
+
+for i in range(NUM_EPOCHS):
+    print(f'Epoch: {i + 1}')
+    for batch_idx, (images, labels) in enumerate(train_loader):
+        images, labels = images.to(device), labels.to(device)
+        output = model_vgg_16(images)
+        loss = criterion(output, labels)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        scheduler.step(loss)
+
+        with torch.no_grad():
+            hist['loss'][i] += loss.item() / len(train_loader)
+
+        print(f'Epoch: {i + 1}, loss={loss.item()}')
+    print(f'Epoch: {i + 1}, average loss={hist["loss"][i]}')
+
+torch.save(model_vgg_16, './model_vgg_16.pth')
+print('The model is saved')
